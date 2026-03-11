@@ -229,21 +229,58 @@ async function runBiometricAudit() {
     throw new Error("Bloqueado");
   }
 
-  cardBiometric.classList.add('scanning'); // Start CSS scanline
-  setScannerStatus("VERIFICANDO...");
+  const supported = await isBiometricSupported();
+  if (!supported) {
+      showToast("Tu dispositivo (PC/Teléfono) no cuenta con lector de huella o biometría disponible.", "warning");
+      setScannerStatus("BIOMETRÍA NO DISPONIBLE");
+      throw new Error("Sin hardware biométrico");
+  }
+
+  cardBiometric.classList.add('scanning');
+  setScannerStatus("ESPERANDO HUELLA...");
   
   try {
-    const supported = await isBiometricSupported();
+    // 1. Invocar el lector de huellas nativo del sistema (WebAuthn / Windows Hello / TouchID)
+    const challenge = new Uint8Array(32);
+    window.crypto.getRandomValues(challenge);
+    const userId = new Uint8Array(16);
+    window.crypto.getRandomValues(userId);
+
+    await navigator.credentials.create({
+        publicKey: {
+            challenge: challenge,
+            rp: { name: "Aura-Check Security" },
+            user: { id: userId, name: "admin@aura.local", displayName: "Aura Admin" },
+            pubKeyCredParams: [{alg: -7, type: "public-key"}, {alg: -257, type: "public-key"}],
+            authenticatorSelection: {
+                authenticatorAttachment: "platform", // Fuerza lector de huella / rostro del dispositivo
+                userVerification: "required"         // Obliga a validar la huella
+            },
+            timeout: 60000
+        }
+    });
+
+    // 2. Si llegamos aquí, ¡la huella fue validada correctamente por el hardware!
+    setScannerStatus("VERIFICANDO...");
     const data = await callVerifyAPI("biometric");
     bioAttemptCount++;
     
     bioStatus.textContent = data.status;
     bioAttempts.textContent = `${bioAttemptCount} / ${MAX_ATTEMPTS}`;
     
-    const webauthnNote = supported ? "WA ✓" : "WA ✗";
-    setScannerStatus(data.status === "CLEAR" ? `ID OK · ${webauthnNote}` : `${data.status} · ${webauthnNote}`);
+    setScannerStatus(data.status === "CLEAR" ? `HUELLA OK · WA ✓` : `${data.status} · WA ✓`);
     handleToastOutcome(data, "Biometría");
     return data;
+  } catch(err) {
+      if (err.name === 'NotAllowedError' || err.message.toLowerCase().includes('cancel')) {
+          setScannerStatus("HUELLA CANCELADA");
+          showToast("Validación biométrica cancelada o fallida.", "warning");
+      } else {
+          setScannerStatus("ERROR SENSOR");
+          showToast("No se pudo iniciar el escáner de huellas.", "threat");
+          console.error("WebAuthn error:", err);
+      }
+      throw err;
   } finally {
     cardBiometric.classList.remove('scanning');
   }
