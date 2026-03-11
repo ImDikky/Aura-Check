@@ -675,51 +675,88 @@ btnFullAudit?.addEventListener("click", async () => {
 });
 
 
-// ═══════════════════════════════════════════════
-//  PDF GENERATION FORENSICS
-// ═══════════════════════════════════════════════
 btnPdf?.addEventListener('click', async () => {
     SoundFX.click();
     showToast("Generando Certificado PDF Forense...", "info");
     
-    // Ocultar temporalmente los botones para no manchar el reporte
-    const hideControls = document.querySelectorAll('button');
-    hideControls.forEach(b => b.style.opacity = '0');
-    
     try {
-        const container = document.querySelector('main');
-        const canvas = await html2canvas(container, {
-            backgroundColor: "#000000",
-            scale: 1.5,
-            useCORS: true,
-            logging: false
-        });
-        
-        const imgData = canvas.toDataURL('image/jpeg', 0.85);
         if(typeof window.jspdf === 'undefined') throw new Error("jsPDF NO CARGADO");
         const { jsPDF } = window.jspdf;
         const pdf = new jsPDF('p', 'mm', 'a4');
         
-        const pdfW = pdf.internal.pageSize.getWidth();
-        const pdfH = (canvas.height * pdfW) / canvas.width;
+        // Colores y Fuentes
+        pdf.setFillColor(10, 10, 10);
+        pdf.rect(0, 0, 210, 297, 'F'); // Fondo negro
         
-        // Agregar "sello de agua"
-        pdf.setFillColor(0, 0, 0);
-        pdf.rect(0, 0, pdfW, pdf.internal.pageSize.getHeight(), 'F');
-        pdf.addImage(imgData, 'JPEG', 0, 0, pdfW, pdfH);
+        pdf.setTextColor(45, 91, 255); // Azul Cobalt
+        pdf.setFont("courier", "bold");
+        pdf.setFontSize(22);
+        pdf.text("AURA-CHECK DIGITAL CERTIFICATE", 105, 30, { align: "center" });
+        
+        pdf.setDrawColor(45, 91, 255);
+        pdf.setLineWidth(0.5);
+        pdf.line(20, 35, 190, 35);
+
+        pdf.setFontSize(10);
+        pdf.setTextColor(150, 150, 150);
+        pdf.text(`Fecha de Auditoría: ${new Date().toLocaleString()}`, 20, 45);
+        pdf.text(`ID de Sesión: ${getSessionId()}`, 20, 52);
+
+        // Extraer datos del DOM
+        const getV = (id) => document.getElementById(id)?.textContent || "N/A";
+        
+        pdf.setTextColor(255, 255, 255);
+        pdf.setFont("courier", "normal");
+        pdf.setFontSize(12);
+
+        let y = 70;
+        const addSection = (title, dataFields) => {
+            pdf.setFont("courier", "bold");
+            pdf.setTextColor(45, 91, 255);
+            pdf.text(`[ ${title.toUpperCase()} ]`, 20, y);
+            y += 8;
+            pdf.setFont("courier", "normal");
+            pdf.setTextColor(220, 220, 220);
+            dataFields.forEach(field => {
+                pdf.text(`> ${field}`, 25, y);
+                y += 6;
+            });
+            y += 6;
+        };
+
+        addSection("Módulo Biométrico", [`Estado: ${getV("bio-status")}`]);
+        addSection("Sensor Óptico (Cámara)", [`ID: ${getV("cam-id")}`, `Resolución: ${getV("cam-res")}`]);
+        addSection("Análisis Acústico", [`Frecuencia: ${getV("audio-hz")}`]);
+        addSection("Hardware y Sistema (Aura)", [
+            `Aura Global: ${getV("sys-aura")}`, 
+            `Batería: ${getV("sys-battery")}`, 
+            `Núcleos Lógicos: ${getV("sys-cpu")}`, 
+            `RAM en Uso: ${getV("sys-ram")}`
+        ]);
+        addSection("Trazabilidad de Red", [
+            `IP Provider: ${getV("net-ip")}`, 
+            `Ubicación: ${getV("net-loc")}`, 
+            `Ancho de Banda: ${getV("net-speed")} Mbps`
+        ]);
+
+        pdf.setDrawColor(45, 91, 255);
+        pdf.line(20, y, 190, y);
+        y += 10;
+        
+        pdf.setFont("courier", "bold");
+        pdf.setTextColor(5, 150, 105); // Verde esmeralda simulando SUCCESS
+        pdf.text("ESTADO GENERAL: CERTIFICADO (" + getV("scanner-status") + ")", 105, y, { align: "center" });
         
         pdf.setFontSize(8);
-        pdf.setTextColor(45, 91, 255);
-        pdf.text(`AURA-CHECK DIGITAL CERTIFICATE - ${new Date().toISOString()}`, 10, pdf.internal.pageSize.getHeight() - 10);
-        
-        pdf.save(`AURA_REPORTE_${Date.now()}.pdf`);
-        showToast("Reporte Descargado", "success");
+        pdf.setTextColor(100, 100, 100);
+        pdf.text("DOCUMENTO GENERADO LOCALMENTE. PRIVACIDAD GARANTIZADA.", 105, 280, { align: "center" });
+
+        pdf.save(`AURA_FORENSIC_REPORT_${Date.now()}.pdf`);
+        showToast("Reporte Descargado Correctamente", "success");
         SoundFX.success();
     } catch(err) {
-        showToast("Error generando reporte: Módulo ausente", "threat");
+        showToast("Error generando reporte PDF.", "threat");
         SoundFX.error();
-    } finally {
-        hideControls.forEach(b => b.style.opacity = '1');
     }
 });
 
