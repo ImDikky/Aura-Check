@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Aura-Check — Verificación Biométrica Local</title>
+  <meta name="description" content="Sistema de verificación biométrica local con privacidad garantizada. Ningún dato sale del dispositivo." />
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Inter + JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ["Inter", "system-ui", "sans-serif"],
+            mono: ["JetBrains Mono", "ui-monospace", "monospace"],
+          },
+          colors: {
+            cobalt: "#2D5BFF",
+            "dark-cobalt": "#1A36A8",
+          },
+        },
+      },
+    };
+  </script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; padding: 0; }
+
+    body {
+      background: #000;
+      font-family: "Inter", system-ui, sans-serif;
+      color: #fff;
+      overflow-x: hidden;
+      /* Scrollbar */
+      scrollbar-width: thin;
+      scrollbar-color: #2D5BFF #000;
+    }
+
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: #000; }
+    ::-webkit-scrollbar-thumb { background: #2D5BFF; border-radius: 3px; }
+
+    /* ── Animations ── */
+    @keyframes spin-tick    { to { transform: rotate(360deg); } }
+    @keyframes breathe-glow {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(45,91,255,0), 0 0 12px rgba(45,91,255,0.08); border-color: rgba(255,255,255,0.10); }
+      50%      { box-shadow: 0 0 0 4px rgba(45,91,255,0.12), 0 0 32px rgba(45,91,255,0.22); border-color: rgba(45,91,255,0.55); }
+    }
+    @keyframes pulse-dot {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(45,91,255,0.6); }
+      60%      { box-shadow: 0 0 0 6px rgba(45,91,255,0); }
+    }
+    @keyframes card-in {
+      from { opacity: 0; transform: translateY(18px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes slide-in-toast {
+      from { transform: translateY(100%); opacity: 0; }
+      to   { transform: translateY(0); opacity: 1; }
+    }
+    @keyframes scan-line {
+      0% { top: 0; opacity: 0; }
+      10% { opacity: 1; }
+      90% { opacity: 1; }
+      100% { top: 100%; opacity: 0; }
+    }
+
+    /* ── Shimmer / Skeleton ── */
+    @keyframes shimmer {
+      0% { background-position: -1000px 0; }
+      100% { background-position: 1000px 0; }
+    }
+    .skeleton {
+      animation: shimmer 2s linear infinite;
+      background: linear-gradient(to right, #0a0a0a 4%, #1a1a1a 25%, #0a0a0a 36%);
+      background-size: 1000px 100%;
+      border-radius: 4px;
+      color: transparent !important;
+    }
+    .skeleton > * { visibility: hidden; }
+
+    /* ── Header ── */
+    .header-wrap {
+      background: rgba(0,0,0,0.92);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid #111;
+    }
+    .brand-accent {
+      width: 3px; height: 22px;
+      background: #2D5BFF; border-radius: 2px;
+      box-shadow: 0 0 8px rgba(45,91,255,0.6);
+    }
+    .status-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #2D5BFF;
+      box-shadow: 0 0 8px rgba(45,91,255,0.9);
+      animation: pulse-dot 2s ease-out infinite;
+    }
+    .section-tag {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 0.62rem; letter-spacing: 0.22em;
+      color: #2D5BFF; text-transform: uppercase; opacity: 0.75;
+    }
+
+    /* ── RESPONSIVE Scanner ── */
+    .scanner-outer {
+      width: min(240px, 70vw); height: min(240px, 70vw); border-radius: 50%;
+      border: 1px solid rgba(255,255,255,0.05);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .scanner-ring {
+      width: min(200px, 58vw); height: min(200px, 58vw); border-radius: 50%;
+      border: 1.5px solid rgba(255,255,255,0.1);
+      display: flex; align-items: center; justify-content: center;
+      position: relative;
+      animation: breathe-glow 4s ease-in-out infinite;
+    }
+    .scanner-tick {
+      position: absolute; width: 100%; height: 100%;
+      border-radius: 50%;
+      border: 2px solid transparent; border-top-color: #2D5BFF;
+      box-shadow: 0 -2px 10px rgba(45,91,255,0.7);
+      animation: spin-tick 3s linear infinite;
+    }
+    .scanner-core {
+      width: min(148px, 42vw); height: min(148px, 42vw); border-radius: 50%;
+      border: 1px solid rgba(255,255,255,0.07);
+      background: radial-gradient(circle, rgba(45,91,255,0.07) 0%, transparent 70%);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 5px;
+      text-align: center; padding: 1rem;
+    }
+    .scanner-label { font-family: "JetBrains Mono", monospace; font-size: min(0.58rem, 2.5vw); letter-spacing: 0.2em; color: rgba(45,91,255,0.6); text-transform: uppercase; }
+    .scanner-status-text { font-family: "JetBrains Mono", monospace; font-size: min(0.68rem, 3vw); letter-spacing: 0.12em; color: #fff; text-wrap: balance; }
+
+    /* ── Glass Card ── */
+    .glass-card {
+      background: #0a0a0a;
+      backdrop-filter: blur(24px) saturate(160%);
+      -webkit-backdrop-filter: blur(24px) saturate(160%);
+      border: 1px solid #27272A; border-radius: 14px;
+      transition: border-color 0.3s, box-shadow 0.3s;
+      position: relative; overflow: hidden; /* For scan line */
+    }
+    .glass-card:hover {
+      border-color: rgba(45,91,255,0.4);
+      box-shadow: 0 0 0 1px rgba(45,91,255,0.1), 0 20px 40px rgba(0,0,0,0.5);
+    }
+    .card-stripe { width: 2px; height: 28px; background: #2D5BFF; border-radius: 2px; box-shadow: 0 0 6px rgba(45,91,255,0.5); flex-shrink: 0; }
+    .icon-badge { flex-shrink: 0; width: 36px; height: 36px; border-radius: 10px; background: rgba(45,91,255,0.08); border: 1px solid rgba(45,91,255,0.22); display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden; }
+
+    /* Fingerprint scan line */
+    .fp-scan-line {
+      position: absolute; width: 100%; height: 2px; background: #2D5BFF;
+      box-shadow: 0 0 8px #2D5BFF; display: none;
+    }
+    .scanning .fp-scan-line { display: block; animation: scan-line 1.5s linear infinite; }
+
+    /* ── Metric ── */
+    .metric-label { font-family: "JetBrains Mono", monospace; font-size: 0.6rem; letter-spacing: 0.12em; color: #3F3F46; text-transform: uppercase; }
+    .metric-value { font-family: "JetBrains Mono", monospace; font-size: 0.88rem; font-weight: 600; color: #2D5BFF; }
+
+    /* ── Button ── */
+    .btn-primary {
+      background: #000; border: 1px solid #27272A; color: #fff;
+      font-family: "Inter", sans-serif; font-size: 0.74rem; font-weight: 500; letter-spacing: 0.05em;
+      padding: 0.58rem 1.1rem; border-radius: 8px; cursor: pointer; width: 100%;
+      display: flex; align-items: center; justify-content: center; gap: 7px;
+      transition: all 0.2s;
+    }
+    .btn-primary svg { stroke: #2D5BFF; flex-shrink: 0; transition: stroke 0.2s; }
+    .btn-primary:hover:not(:disabled) {
+      border-color: #2D5BFF; box-shadow: 0 0 0 1px rgba(45,91,255,0.25), 0 4px 20px rgba(45,91,255,0.18);
+      background: rgba(45,91,255,0.04);
+    }
+    .btn-primary:active:not(:disabled) { transform: scale(0.98); }
+    .btn-primary:disabled { opacity: 0.6; cursor: wait; border-color: #27272A; background: #0a0a0a; }
+
+    /* Global action button */
+    .btn-global-action {
+        background: linear-gradient(135deg, rgba(45,91,255,0.1), transparent);
+        border: 1px solid rgba(45,91,255,0.4);
+    }
+    .btn-global-action:hover:not(:disabled) {
+        background: linear-gradient(135deg, rgba(45,91,255,0.2), rgba(45,91,255,0.05));
+    }
+
+    /* ── Video circle ── */
+    .video-circle { width: 88px; height: 88px; border-radius: 50%; background: #000; border: 1px solid #27272A; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+    video#video-feed { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+
+    /* ── Waveform canvas ── */
+    canvas#waveform { width: 100%; height: 52px; display: block; background: #000; border-radius: 8px; border: 1px solid rgba(45,91,255,0.3); }
+
+    /* ── Aura Ring ── */
+    .aura-ring-container {
+        width: 60px; height: 60px;
+        border-radius: 50%;
+        background: conic-gradient(#2D5BFF 0deg, #27272A 0deg); /* Updated by JS */
+        display: flex; align-items: center; justify-content: center;
+        position: relative;
+    }
+    .aura-ring-inner {
+        width: 52px; height: 52px;
+        background: #0a0a0a;
+        border-radius: 50%;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        z-index: 10;
+    }
+
+    /* ── Toast Container ── */
+    #toast-container { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 9999; display: flex; flex-direction: column; gap: 8px; width: max-content; max-width: 90vw; }
+    .toast {
+      background: #0a0a0a;  border: 1px solid #27272A; border-radius: 8px; padding: 12px 16px;
+      display: flex; align-items: center; gap: 12px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+      font-family: "JetBrains Mono", monospace; font-size: 0.7rem; color: #fff;
+      animation: slide-in-toast 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+    .toast.success { border-left: 3px solid #059669; }
+    .toast.warning { border-left: 3px solid #D97706; }
+    .toast.threat  { border-left: 3px solid #DC2626; }
+    .toast.info    { border-left: 3px solid #2D5BFF; }
+
+    /* ── Sidebar History ── */
+    #history-sidebar {
+      position: fixed; top: 0; right: -320px; width: 320px; height: 100vh;
+      background: rgba(10,10,10,0.95); backdrop-filter: blur(20px);
+      border-left: 1px solid #27272A; box-shadow: -10px 0 40px rgba(0,0,0,0.5);
+      z-index: 1000; transition: right 0.3s ease; padding: 24px 20px;
+      display: flex; flex-direction: column;
+    }
+    #history-sidebar.open { right: 0; }
+    .history-item {
+        padding: 12px; border: 1px solid #27272A; border-radius: 8px; background: #000; margin-bottom: 8px; font-family: "JetBrains Mono", monospace;
+    }
+
+    /* ── Responsive Grid Animations ── */
+    .card-grid > article { animation: card-in 0.5s ease both; }
+    .card-grid > article:nth-child(1) { animation-delay: 0.05s; }
+    .card-grid > article:nth-child(2) { animation-delay: 0.12s; }
+    .card-grid > article:nth-child(3) { animation-delay: 0.19s; }
+    .card-grid > article:nth-child(4) { animation-delay: 0.26s; }
+
+  </style>
+</head>
+
+<body class="min-h-screen flex flex-col">
+
+  <!-- ══════════════ HEADER ══════════════ -->
+  <header class="header-wrap sticky top-0 z-50 flex items-center justify-between px-4 sm:px-8 py-4 w-full">
+    <div class="brand-bar flex items-center gap-3">
+      <div class="brand-accent"></div>
+      <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="#2D5BFF" stroke-width="1.5">
+        <circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/>
+        <line x1="12" y1="3" x2="12" y2="8"/><line x1="12" y1="16" x2="12" y2="21"/>
+        <line x1="3" y1="12" x2="8" y2="12"/><line x1="16" y1="12" x2="21" y2="12"/>
+      </svg>
+      <span style="font-size:0.82rem;font-weight:600;letter-spacing:0.22em;color:#fff;">AURA-CHECK</span>
+    </div>
+
+    <div class="flex items-center gap-4">
+      <!-- History Button -->
+      <button id="btn-toggle-history" class="text-zinc-400 hover:text-cobalt transition-colors" aria-label="Historial">
+        <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+      </button>
+
+      <!-- Status dot -->
+      <div class="flex items-center gap-2">
+        <div class="status-dot"></div>
+        <span class="hidden sm:inline-block" style="font-family:'JetBrains Mono',monospace;font-size:0.65rem;letter-spacing:0.15em;color:#A1A1AA;">
+          {{ aura_status }}
+        </span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ══════════════ HISTORY SIDEBAR ══════════════ -->
+  <aside id="history-sidebar">
+    <div class="flex justify-between items-center mb-6">
+      <h3 class="font-mono text-cobalt tracking-widest text-sm uppercase">Historial (Local)</h3>
+      <button id="btn-close-history" class="text-zinc-500 hover:text-white" aria-label="Cerrar"><svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div id="history-list" class="flex-1 overflow-y-auto pr-2 flex flex-col gap-2">
+        <!-- JS injects items here -->
+        <p class="text-zinc-600 text-xs font-mono text-center mt-4">Sin registros aún.</p>
+    </div>
+    <button id="btn-clear-history" class="mt-4 text-xs font-mono text-zinc-500 hover:text-red-500 transition-colors uppercase py-2">Borrar Historial</button>
+  </aside>
+
+  <!-- ══════════════ TOAST CONTAINER ══════════════ -->
+  <div id="toast-container"></div>
+
+  <!-- ══════════════ MAIN ══════════════ -->
+  <main class="flex-1 flex flex-col items-center gap-10 sm:gap-14 px-4 sm:px-6 py-8 sm:py-14 max-w-4xl mx-auto w-full">
+
+    <!-- ── HERO Scanner ── -->
+    <section class="flex flex-col items-center gap-5 w-full">
+      <div class="flex justify-between w-full items-center">
+        <p class="section-tag">// verificación.biométrica.local</p>
+        <p class="section-tag hidden sm:block" style="color:#A1A1AA;">Modo Offline</p>
+      </div>
+
+      <div class="scanner-outer">
+        <div class="scanner-ring">
+          <div class="scanner-tick"></div>
+          <div class="scanner-core">
+            <span class="scanner-label">estado</span>
+            <span class="scanner-status-text" id="scanner-status">SISTEMA LISTO</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Action: Full Audit -->
+      <div class="w-full max-w-xs mt-2 relative">
+          <button id="btn-full-audit" class="btn-primary btn-global-action">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            Ejecutar Auditoría Total
+          </button>
+          <!-- Global Progress (hidden by default) -->
+          <div id="global-progress" class="absolute -bottom-4 left-0 w-full h-1 bg-zinc-900 rounded-full overflow-hidden hidden">
+              <div id="global-progress-bar" class="h-full bg-cobalt transition-all duration-300" style="width: 0%"></div>
+          </div>
+      </div>
+    </section>
+
+    <!-- ── 2×2 CARD GRID ── -->
+    <section class="card-grid grid grid-cols-1 sm:grid-cols-2 gap-5 w-full">
+
+      <!-- CARD 1 — Biometría -->
+      <article class="glass-card p-5 sm:p-6 flex flex-col gap-5" id="card-biometric">
+        <div class="flex items-start gap-4">
+          <div class="icon-badge">
+            <div class="fp-scan-line"></div>
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="#2D5BFF" stroke-width="1.5">
+              <path d="M12 22C6 22 4 17.5 4 12a8 8 0 0 1 16 0c0 3-.8 6-2 8"/>
+              <path d="M8 12a4 4 0 0 1 8 0c0 1.5-.3 3-.8 4.5"/>
+              <circle cx="12" cy="12" r="1.5" fill="#2D5BFF"/>
+            </svg>
+          </div>
+          <div class="flex-1 flex items-center gap-3">
+            <div class="card-stripe"></div>
+            <div>
+              <h2 class="text-xs sm:text-sm font-semibold text-white tracking-wide">Integridad Biométrica</h2>
+              <p class="text-[0.65rem] sm:text-xs mt-0.5 font-mono text-zinc-500">Validación dactilar+facial</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex gap-6">
+          <div class="metric-container" data-field="bio-status-container">
+            <p class="metric-label">Estado</p>
+            <p class="metric-value font-mono" id="bio-status">ESPERA</p>
+          </div>
+          <div>
+            <p class="metric-label">Intentos</p>
+            <p class="metric-value font-mono" id="bio-attempts">0 / 3</p>
+          </div>
+        </div>
+
+        <button id="btn-biometric" class="btn-primary">
+          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+          <span class="btn-text">Validar Identidad</span>
+        </button>
+      </article>
+
+      <!-- CARD 2 — Cámara -->
+      <article class="glass-card p-5 sm:p-6 flex flex-col gap-5" id="card-camera">
+        <div class="flex items-start gap-4">
+          <div class="icon-badge">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="#2D5BFF" stroke-width="1.5">
+              <path d="M23 7 16 12l7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/>
+            </svg>
+          </div>
+          <div class="flex-1 flex items-center gap-3">
+            <div class="card-stripe"></div>
+            <div>
+              <h2 class="text-xs sm:text-sm font-semibold text-white tracking-wide">Sensor Óptico</h2>
+              <p class="text-[0.65rem] sm:text-xs mt-0.5 font-mono text-zinc-500">Captura visual en vivo</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-4">
+          <div class="video-circle flex-shrink-0">
+            <video id="video-feed" autoplay muted playsinline style="display:none;"></video>
+            <svg id="camera-placeholder" class="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="#3F3F46" stroke-width="1">
+              <circle cx="12" cy="12" r="4"/><path d="M2 12S5 6 12 6s10 6 10 6-3 6-10 6S2 12 2 12z"/>
+            </svg>
+          </div>
+          <div class="flex flex-col gap-2 metric-container flex-1" data-field="cam-details-container">
+            <div>
+              <p class="metric-label">Cámara</p>
+              <p class="metric-value truncate font-mono" id="cam-id">CAM_00</p>
+            </div>
+            <div>
+              <p class="metric-label">Resolución</p>
+              <p class="metric-value font-mono" id="cam-res">—</p>
+            </div>
+          </div>
+        </div>
+
+        <button id="btn-camera" class="btn-primary">
+          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+          <span class="btn-text">Activar Visor</span>
+        </button>
+      </article>
+
+      <!-- CARD 3 — Audio -->
+      <article class="glass-card p-5 sm:p-6 flex flex-col gap-5" id="card-audio">
+        <div class="flex items-start gap-4">
+          <div class="icon-badge">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="#2D5BFF" stroke-width="1.5">
+              <path d="M3 18v-6a9 9 0 0 1 18 0v6"/>
+              <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3z"/>
+              <path d="M3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/>
+            </svg>
+          </div>
+          <div class="flex-1 flex items-center gap-3">
+            <div class="card-stripe"></div>
+            <div>
+              <h2 class="text-xs sm:text-sm font-semibold text-white tracking-wide">Frecuencia Acústica</h2>
+              <p class="text-[0.65rem] sm:text-xs mt-0.5 font-mono text-zinc-500">Análisis espectral vocal</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex flex-col gap-2">
+          <canvas id="waveform" aria-label="Visualizador de onda"></canvas>
+          <div class="flex justify-between items-center metric-container" data-field="audio-details-container">
+              <p class="metric-label">Sample Rate</p>
+              <p class="metric-value font-mono" id="audio-hz">— Hz</p>
+          </div>
+        </div>
+
+        <button id="btn-audio" class="btn-primary">
+          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+          <span class="btn-text">Capturar Onda</span>
+        </button>
+      </article>
+
+      <!-- CARD 4 — Sistema -->
+      <article class="glass-card p-5 sm:p-6 flex flex-col gap-5" id="card-system">
+        <div class="flex items-start gap-4">
+          <div class="icon-badge">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="#2D5BFF" stroke-width="1.5">
+              <rect x="2" y="7" width="16" height="10" rx="2"/>
+              <line x1="22" y1="11" x2="22" y2="13"/>
+              <line x1="6" y1="7" x2="6" y2="17"/>
+              <line x1="10" y1="7" x2="10" y2="17"/>
+              <line x1="14" y1="7" x2="14" y2="17"/>
+            </svg>
+          </div>
+          <div class="flex-1 flex items-center gap-3">
+            <div class="card-stripe"></div>
+            <div>
+              <h2 class="text-xs sm:text-sm font-semibold text-white tracking-wide">Aura del Sistema</h2>
+              <p class="text-[0.65rem] sm:text-xs mt-0.5 font-mono text-zinc-500">Métricas de hardware</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-4">
+            <!-- Aura Progress Ring -->
+            <div class="aura-ring-container flex-shrink-0" id="aura-ring">
+                <div class="aura-ring-inner">
+                    <span class="text-[0.6rem] font-mono text-zinc-500 uppercase">Aura</span>
+                    <span class="text-xs font-mono font-bold text-cobalt leading-none mt-1" id="sys-aura">—</span>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-x-4 gap-y-2 flex-1 metric-container" data-field="sys-details-container">
+              <div>
+                <p class="metric-label">Batería</p>
+                <p class="metric-value font-mono" id="sys-battery">—</p>
+              </div>
+              <div>
+                <p class="metric-label">CPU</p>
+                <p class="metric-value font-mono" id="sys-cpu">—</p>
+              </div>
+              <div class="col-span-2">
+                <p class="metric-label">RAM</p>
+                <p class="metric-value font-mono" id="sys-ram">—</p>
+              </div>
+            </div>
+        </div>
+
+        <button id="btn-system" class="btn-primary">
+          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+          <span class="btn-text">Analizar Hardware</span>
+        </button>
+      </article>
+
+    </section>
+  </main>
+
+  <!-- ══════════════ FOOTER ══════════════ -->
+  <footer class="header-wrap flex items-center justify-center px-4 sm:px-8 py-4 sm:py-5 mt-auto">
+    <div class="flex items-center gap-2 text-center">
+      <svg class="w-3 h-3 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="#2D5BFF" stroke-width="2">
+        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+      </svg>
+      <p style="font-family:'JetBrains Mono',monospace;font-size:min(0.55rem, 2vw);letter-spacing:0.15em;color:#52525B;text-transform:uppercase;">
+        PRIVACIDAD GARANTIZADA — NINGÚN DATO SALE DEL DISPOSITIVO
+      </p>
+    </div>
+  </footer>
+
+  <!-- ══════════════ SCRIPTS ══════════════ -->
+  <script src="/static/js/main.js"></script>
+</body>
+</html>
