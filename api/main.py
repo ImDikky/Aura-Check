@@ -7,9 +7,6 @@ Estructura profesional con:
 - Endpoint /api/verify con análisis de seguridad simulado y Rate Limiting
 - Middleware de seguridad y CORS
 """
-
-from __future__ import annotations
-
 import os
 import random
 import time
