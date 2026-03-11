@@ -69,8 +69,16 @@ app.add_middleware(
 # ──────────────────────────────────────────────
 #  Static files & Templates
 # ──────────────────────────────────────────────
-app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
-templates = Jinja2Templates(directory=BASE_DIR / "templates")
+static_dir = BASE_DIR / "static"
+templates_dir = BASE_DIR / "templates"
+
+if static_dir.is_dir():
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+if templates_dir.is_dir():
+    templates = Jinja2Templates(directory=templates_dir)
+else:
+    templates = None
 
 
 # ──────────────────────────────────────────────
@@ -79,6 +87,12 @@ templates = Jinja2Templates(directory=BASE_DIR / "templates")
 @app.get("/", include_in_schema=False)
 async def index(request: Request):
     """Sirve el dashboard principal con el estado del sistema inyectado vía Jinja2."""
+    if templates is None:
+        return JSONResponse(
+            status_code=500, 
+            content={"error": "Templates directory missing in Vercel lambda bundle."}
+        )
+    
     aura_status = os.getenv("AURA_STATUS", "SISTEMA ACTIVO")
     return templates.TemplateResponse(
         "index.html",
