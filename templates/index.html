@@ -9,6 +9,11 @@
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
 
+  <!-- Premium Features CDN: Face Tracking & PDF -->
+  <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.12/dist/face-api.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
   <!-- Inter + JetBrains Mono -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -194,9 +199,10 @@
         background: linear-gradient(135deg, rgba(45,91,255,0.2), rgba(45,91,255,0.05));
     }
 
-    /* ── Video circle ── */
-    .video-circle { width: 88px; height: 88px; border-radius: 50%; background: #000; border: 1px solid #27272A; display: flex; align-items: center; justify-content: center; overflow: hidden; }
-    video#video-feed { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+    /* ── Video circle + Overlays ── */
+    .video-circle { position: relative; width: 88px; height: 88px; border-radius: 50%; background: #000; border: 1px solid #27272A; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+    video#video-feed { position: absolute; top:0; left:0; width: 100%; height: 100%; object-fit: cover; border-radius: 50%; z-index: 1;}
+    canvas#face-canvas { position: absolute; top:0; left:0; width: 100%; height: 100%; z-index: 2; pointer-events: none; }
 
     /* ── Waveform canvas ── */
     canvas#waveform { width: 100%; height: 52px; display: block; background: #000; border-radius: 8px; border: 1px solid rgba(45,91,255,0.3); }
@@ -321,10 +327,14 @@
       </div>
 
       <!-- Action: Full Audit -->
-      <div class="w-full max-w-xs mt-2 relative">
+      <div class="w-full max-w-xs mt-2 relative flex flex-col gap-3">
           <button id="btn-full-audit" class="btn-primary btn-global-action">
             <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
             Ejecutar Auditoría Total
+          </button>
+          <button id="btn-download-pdf" class="btn-primary border-cobalt text-cobalt hidden transition-all" style="background: rgba(45,91,255,0.1)">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+            Descargar Reporte PDF
           </button>
           <!-- Global Progress (hidden by default) -->
           <div id="global-progress" class="absolute -bottom-4 left-0 w-full h-1 bg-zinc-900 rounded-full overflow-hidden hidden">
@@ -333,8 +343,8 @@
       </div>
     </section>
 
-    <!-- ── 2×2 CARD GRID ── -->
-    <section class="card-grid grid grid-cols-1 sm:grid-cols-2 gap-5 w-full">
+    <!-- ── CARD GRID ── -->
+    <section class="card-grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 w-full">
 
       <!-- CARD 1 — Biometría -->
       <article class="glass-card p-5 sm:p-6 flex flex-col gap-5" id="card-biometric">
@@ -393,6 +403,7 @@
         <div class="flex items-center gap-4">
           <div class="video-circle flex-shrink-0">
             <video id="video-feed" autoplay muted playsinline style="display:none;"></video>
+            <canvas id="face-canvas"></canvas>
             <svg id="camera-placeholder" class="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="#3F3F46" stroke-width="1">
               <circle cx="12" cy="12" r="4"/><path d="M2 12S5 6 12 6s10 6 10 6-3 6-10 6S2 12 2 12z"/>
             </svg>
@@ -497,6 +508,44 @@
         <button id="btn-system" class="btn-primary">
           <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
           <span class="btn-text">Analizar Hardware</span>
+        </button>
+      </article>
+
+      <!-- CARD 5 — Red y Geometría -->
+      <article class="glass-card p-5 sm:p-6 flex flex-col gap-5 lg:col-span-1" id="card-network">
+        <div class="flex items-start gap-4">
+          <div class="icon-badge">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="#2D5BFF" stroke-width="1.5">
+              <circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+            </svg>
+          </div>
+          <div class="flex-1 flex items-center gap-3">
+            <div class="card-stripe"></div>
+            <div>
+              <h2 class="text-xs sm:text-sm font-semibold text-white tracking-wide">Seguridad de Red</h2>
+              <p class="text-[0.65rem] sm:text-xs mt-0.5 font-mono text-zinc-500">IP, ISP y Velocidad (Mbps)</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-x-4 gap-y-3 flex-1 metric-container" data-field="net-details-container">
+          <div class="col-span-2">
+            <p class="metric-label">Dirección IP / ISP</p>
+            <p class="metric-value font-mono truncate" id="net-ip">—</p>
+          </div>
+          <div>
+            <p class="metric-label">Locación</p>
+            <p class="metric-value font-mono truncate" id="net-loc">—</p>
+          </div>
+          <div>
+            <p class="metric-label">Velocidad</p>
+            <p class="metric-value font-mono" id="net-speed">— Mbps</p>
+          </div>
+        </div>
+
+        <button id="btn-network" class="btn-primary">
+          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+          <span class="btn-text">Rastrear Conexión</span>
         </button>
       </article>
 

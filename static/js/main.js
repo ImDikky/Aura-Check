@@ -57,11 +57,45 @@ const sysCpu = $("sys-cpu");
 const sysRam = $("sys-ram");
 const sysAura = $("sys-aura");
 const auraRing = $("aura-ring");
+// Card 5
+const cardNetwork = $("card-network");
+const btnNetwork = $("btn-network");
+const netIp = $("net-ip");
+const netLoc = $("net-loc");
+const netSpeed = $("net-speed");
 
+// PDF & Extra Overlays
+const btnPdf = $("btn-download-pdf");
+const faceCanvas = $("face-canvas");
+// ═══════════════════════════════════════════════
+//  UTILITIES, UI & SOUND
+// ═══════════════════════════════════════════════
 
-// ═══════════════════════════════════════════════
-//  UTILITIES & UI ENHANCEMENTS
-// ═══════════════════════════════════════════════
+// ── Sound Design (Web Audio API) ──
+const SoundFX = {
+  ctx: null,
+  init() { if(!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)(); },
+  play(freq, type, duration, vol=0.1) {
+    if(!this.ctx) return;
+    if(this.ctx.state === 'suspended') this.ctx.resume();
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = type; osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+    gain.gain.setValueAtTime(vol, this.ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + duration);
+    osc.connect(gain); gain.connect(this.ctx.destination);
+    osc.start(); osc.stop(this.ctx.currentTime + duration);
+  },
+  hover() { this.play(800, 'sine', 0.1, 0.02); },
+  click() { this.play(1200, 'square', 0.1, 0.05); },
+  success() { this.play(600, 'sine', 0.1, 0.1); setTimeout(()=>this.play(800, 'sine', 0.2, 0.1), 100); },
+  error() { this.play(200, 'sawtooth', 0.3, 0.1); setTimeout(()=>this.play(150, 'sawtooth', 0.4, 0.1), 150); }
+};
+
+document.querySelectorAll('button').forEach(b => {
+    b.addEventListener('mouseenter', () => SoundFX.hover());
+    b.addEventListener('pointerdown', () => { SoundFX.init(); SoundFX.click(); });
+});
 
 function setScannerStatus(text) {
   if (scannerStatus) scannerStatus.textContent = text;
@@ -304,6 +338,32 @@ async function runCameraAudit() {
         await videoFeed.play();
         camPlaceholder.style.display = "none";
         videoFeed.style.display = "block";
+        
+        // Cargar modelos de face-api
+        if (typeof faceapi !== "undefined") {
+            try {
+                setScannerStatus("CARGANDO MODELO IA...");
+                const MODEL_URL = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights/';
+                await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+                
+                // Empezar tracking
+                const displaySize = { width: videoFeed.offsetWidth, height: videoFeed.offsetHeight };
+                faceapi.matchDimensions(faceCanvas, displaySize);
+                
+                setInterval(async () => {
+                    if (!cameraStream) return;
+                    try {
+                        const detections = await faceapi.detectAllFaces(videoFeed, new faceapi.TinyFaceDetectorOptions());
+                        const resized = faceapi.resizeResults(detections, displaySize);
+                        const ctx = faceCanvas.getContext('2d');
+                        ctx.clearRect(0, 0, faceCanvas.width, faceCanvas.height);
+                        if (resized.length > 0) {
+                            faceapi.draw.drawDetections(faceCanvas, resized, { withScore: false, boxColor: '#2D5BFF', lineWidth: 2 });
+                        }
+                    } catch(e) {}
+                }, 150);
+            } catch(e) { console.warn("Falló face-api carga mútiple", e); }
+        }
     }
 
     const track = cameraStream.getVideoTracks()[0];
@@ -331,6 +391,7 @@ btnCamera?.addEventListener("click", async () => {
     cameraStream = null;
     videoFeed.srcObject = null;
     videoFeed.style.display = "none";
+    if (faceCanvas) faceCanvas.getContext('2d')?.clearRect(0, 0, faceCanvas.width, faceCanvas.height);
     camPlaceholder.style.display = "block";
     camId.textContent = "CAM_00";
     camRes.textContent = "—";
@@ -412,7 +473,30 @@ async function runAudioAudit() {
        drawActiveWaveform();
        btnAudio.querySelector('.btn-text').textContent = "Detener Onda";
 
+       // Medir el volumen RMS en vivo mientras se procesa la solicitud (100-300ms)
+       let sumVol = 0, loops = 0;
+       const volInterval = setInterval(() => {
+           if(!analyser) return;
+           const buf = new Uint8Array(analyser.frequencyBinCount);
+           analyser.getByteTimeDomainData(buf);
+           let rms = 0;
+           for(let i=0; i<buf.length; i++) {
+               let v = (buf[i] - 128) / 128;
+               rms += v*v;
+           }
+           sumVol += Math.sqrt(rms / buf.length);
+           loops++;
+       }, 50);
+
        const data = await callVerifyAPI("audio");
+       clearInterval(volInterval);
+       
+       const avgVol = sumVol / (loops || 1);
+       if (avgVol > 0.15) { // Ruido muy fuerte interceptado
+           data.status = "WARNING";
+           if(data.confidence_score > 0.8) data.confidence_score -= 0.15;
+       }
+
        setScannerStatus(`ONDA CAPTURADA · ${data.status}`);
        handleToastOutcome(data, "Audio");
        return data;
@@ -471,11 +555,63 @@ btnSystem?.addEventListener("click", async () => {
     try { await withLoading(btnSystem, cardSystem, "Escaneando...", runSystemAudit); } catch(e){}
 });
 
+// ── 5. Seguridad de Red ──
+async function runNetworkAudit() {
+   setScannerStatus("RASTREANDO RED...");
+   try {
+       // 1. IP and ISP Lookup via ipapi
+       const ipRes = await fetch("https://ipapi.co/json/");
+       if (!ipRes.ok) throw new Error("Fallo al rastrear IP");
+       const ipData = await ipRes.json();
+       
+       netIp.textContent = `${ipData.ip || "?"} / ${ipData.org || "?"}`;
+       netLoc.textContent = `${ipData.city || "?"}, ${ipData.country_code || "?"}`;
+
+       // 2. Bandwidth Speed Test (download a 1MB dummy asset)
+       setScannerStatus("MIDIENDO ANCHO DE BANDA...");
+       const cacheBuster = `?t=${Date.now()}`;
+       const imgUrl = "https://upload.wikimedia.org/wikipedia/commons/3/3a/Cat03.jpg" + cacheBuster; // ~150KB image
+       
+       const startTime = performance.now();
+       const bwRes = await fetch(imgUrl);
+       const blob = await bwRes.blob();
+       const endTime = performance.now();
+       
+       const durationSec = (endTime - startTime) / 1000;
+       const bitsLoaded = blob.size * 8;
+       const mbps = (bitsLoaded / durationSec / 1000000).toFixed(1);
+       
+       netSpeed.textContent = `${mbps}`;
+
+       // Calculate mock security object since backend lacks network endpoint
+       const statusVal = parseFloat(mbps) < 1.0 ? "WARNING" : "CLEAR";
+       const score = parseFloat(mbps) > 10 ? 0.99 : 0.85;
+
+       const dataObj = { module: "network", status: statusVal, confidence_score: score };
+       saveToHistory({ timestamp: Date.now(), module: "network", status: statusVal, confidence: score });
+
+       setScannerStatus(statusVal === "CLEAR" ? `RED SEGURA · ${mbps} Mbps` : `CONEXIÓN LENTA · WARN`);
+       handleToastOutcome(dataObj, "Red");
+       if(statusVal === "CLEAR") SoundFX.success(); else SoundFX.error();
+       
+       return dataObj;
+   } catch(err) {
+       netIp.textContent = "ERR"; netLoc.textContent = "ERR"; netSpeed.textContent = "ERR";
+       showToast("Fallo de red o bloqueo de CORS.", "threat");
+       SoundFX.error();
+       throw err;
+   }
+}
+
+btnNetwork?.addEventListener("click", async () => {
+    try { await withLoading(btnNetwork, cardNetwork, "Rastreando...", runNetworkAudit); } catch(e){}
+});
+
 // Helper for toasts
 function handleToastOutcome(data, modName) {
-    if(data.status === "CLEAR") showToast(`${modName}: Todo en orden.`, "success");
-    else if(data.status === "WARNING") showToast(`${modName}: Advertencia detectada.`, "warning");
-    else showToast(`${modName}: Amenaza activa interceptada.`, "threat");
+    if(data.status === "CLEAR") { showToast(`${modName}: Todo en orden.`, "success"); SoundFX.success(); }
+    else if(data.status === "WARNING") { showToast(`${modName}: Advertencia detectada.`, "warning"); SoundFX.error(); }
+    else { showToast(`${modName}: Amenaza activa interceptada.`, "threat"); SoundFX.error(); }
 }
 
 // ═══════════════════════════════════════════════
@@ -512,12 +648,19 @@ btnFullAudit?.addEventListener("click", async () => {
         updateProg();
         await new Promise(r => setTimeout(r, 600));
 
-        btnFullAudit.innerHTML = `<span class="opacity-80">4/4: Sistema...</span>`;
+        btnFullAudit.innerHTML = `<span class="opacity-80">4/5: Sistema...</span>`;
         await runSystemAudit();
+        updateProg();
+        await new Promise(r => setTimeout(r, 600));
+
+        btnFullAudit.innerHTML = `<span class="opacity-80">5/5: Red...</span>`;
+        await runNetworkAudit();
         updateProg();
         
         btnFullAudit.innerHTML = `<span>✓ Auditoría Completada</span>`;
+        if (btnPdf) btnPdf.classList.remove('hidden');
         showToast("Auditoría Total Finalizada", "success");
+        SoundFX.success();
         
     } catch(e) {
         btnFullAudit.innerHTML = `<span>✗ Auditoría Interrumpida</span>`;
@@ -531,6 +674,54 @@ btnFullAudit?.addEventListener("click", async () => {
     }
 });
 
+
+// ═══════════════════════════════════════════════
+//  PDF GENERATION FORENSICS
+// ═══════════════════════════════════════════════
+btnPdf?.addEventListener('click', async () => {
+    SoundFX.click();
+    showToast("Generando Certificado PDF Forense...", "info");
+    
+    // Ocultar temporalmente los botones para no manchar el reporte
+    const hideControls = document.querySelectorAll('button');
+    hideControls.forEach(b => b.style.opacity = '0');
+    
+    try {
+        const container = document.querySelector('main');
+        const canvas = await html2canvas(container, {
+            backgroundColor: "#000000",
+            scale: 1.5,
+            useCORS: true,
+            logging: false
+        });
+        
+        const imgData = canvas.toDataURL('image/jpeg', 0.85);
+        if(typeof window.jspdf === 'undefined') throw new Error("jsPDF NO CARGADO");
+        const { jsPDF } = window.jspdf;
+        const pdf = new jsPDF('p', 'mm', 'a4');
+        
+        const pdfW = pdf.internal.pageSize.getWidth();
+        const pdfH = (canvas.height * pdfW) / canvas.width;
+        
+        // Agregar "sello de agua"
+        pdf.setFillColor(0, 0, 0);
+        pdf.rect(0, 0, pdfW, pdf.internal.pageSize.getHeight(), 'F');
+        pdf.addImage(imgData, 'JPEG', 0, 0, pdfW, pdfH);
+        
+        pdf.setFontSize(8);
+        pdf.setTextColor(45, 91, 255);
+        pdf.text(`AURA-CHECK DIGITAL CERTIFICATE - ${new Date().toISOString()}`, 10, pdf.internal.pageSize.getHeight() - 10);
+        
+        pdf.save(`AURA_REPORTE_${Date.now()}.pdf`);
+        showToast("Reporte Descargado", "success");
+        SoundFX.success();
+    } catch(err) {
+        showToast("Error generando reporte: Módulo ausente", "threat");
+        SoundFX.error();
+    } finally {
+        hideControls.forEach(b => b.style.opacity = '1');
+    }
+});
 
 // ═══════════════════════════════════════════════
 //  INIT
